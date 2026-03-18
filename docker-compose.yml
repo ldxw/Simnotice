@@ -1,0 +1,38 @@
+# version: "3.9"
+
+services:
+  simnotice-backend:
+    # 从 GHCR 拉取后端镜像
+    image: ghcr.io/ldxw/simnotice-backend:latest
+
+    container_name: simnotice-backend
+
+    # 加载后端环境变量
+    env_file:
+      - ./backend/.env
+
+    # 数据持久化
+    volumes:
+      - ./backend/data:/app/data
+
+    # 对外暴露后端端口
+    # 如果你不需要直接访问后端 API，可以删掉这一段
+    # ports:
+    #   - "${BACKEND_PORT}:9501"
+
+    restart: unless-stopped
+
+  simnotice-frontend:
+    # 从 GHCR 拉取前端镜像
+    image: ghcr.io/ldxw/simnotice-frontend:latest
+
+    container_name: simnotice-frontend
+
+    depends_on:
+      - simnotice-backend
+
+    # 对外暴露前端端口
+    # ports:
+    #   - "${FRONTEND_PORT}:80"
+
+    restart: unless-stopped
