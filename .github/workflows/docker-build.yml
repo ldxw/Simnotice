@@ -5,6 +5,12 @@ on:
   #   branches:
   #     - dev
   workflow_dispatch:
+    inputs:
+      build_branch:
+        description: "选择要构建的分支"
+        required: true
+        default: "dev"
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -34,10 +40,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: dev
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.build_branch || github.ref_name }}
 
       - name: Debug files
         run: |
+          echo "event: ${{ github.event_name }}"
+          echo "ref_name: ${{ github.ref_name }}"
+          echo "input branch: ${{ inputs.build_branch }}"
           pwd
           ls -la
           ls -la backend || true
