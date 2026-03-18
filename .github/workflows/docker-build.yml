@@ -16,44 +16,57 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  docker:
-    runs-on: ubuntu-latest
-
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: backend
+          - app: backend
             context: ./backend
             file: ./backend/Dockerfile
             image: ghcr.io/${{ github.repository_owner }}/simnotice-backend
-          - name: frontend
+            platform: linux/amd64
+            runner: ubuntu-latest
+            arch_tag: amd64
+
+          - app: backend
+            context: ./backend
+            file: ./backend/Dockerfile
+            image: ghcr.io/${{ github.repository_owner }}/simnotice-backend
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch_tag: arm64
+
+          - app: frontend
             context: ./frontend
             file: ./frontend/Dockerfile
             image: ghcr.io/${{ github.repository_owner }}/simnotice-frontend
+            platform: linux/amd64
+            runner: ubuntu-latest
+            arch_tag: amd64
+
+          - app: frontend
+            context: ./frontend
+            file: ./frontend/Dockerfile
+            image: ghcr.io/${{ github.repository_owner }}/simnotice-frontend
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch_tag: arm64
+
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
       packages: write
+
+    outputs:
+      date_tag: ${{ steps.date.outputs.date_tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.build_branch || github.ref_name }}
-
-      - name: Debug files
-        run: |
-          echo "event: ${{ github.event_name }}"
-          echo "ref_name: ${{ github.ref_name }}"
-          echo "input branch: ${{ inputs.build_branch }}"
-          pwd
-          ls -la
-          ls -la backend || true
-          ls -la frontend || true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -67,18 +80,57 @@ jobs:
 
       - name: Generate date tag
         id: date
-        run: |
-          echo "date_tag=$(TZ=Asia/Shanghai date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+        run: echo "date_tag=$(TZ=Asia/Shanghai date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
 
-      - name: Build and push ${{ matrix.name }}
+      - name: Build and push arch image
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:${{ steps.date.outputs.date_tag }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+            ${{ matrix.image }}:latest-${{ matrix.arch_tag }}
+            ${{ matrix.image }}:${{ steps.date.outputs.date_tag }}-${{ matrix.arch_tag }}
+          cache-from: type=gha,scope=${{ matrix.app }}-${{ matrix.arch_tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-${{ matrix.arch_tag }}
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set date tag
+        id: date
+        run: echo "date_tag=$(TZ=Asia/Shanghai date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create backend manifest
+        run: |
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/simnotice-backend:latest \
+            ghcr.io/${{ github.repository_owner }}/simnotice-backend:latest-amd64 \
+            ghcr.io/${{ github.repository_owner }}/simnotice-backend:latest-arm64
+
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/simnotice-backend:${{ steps.date.outputs.date_tag }} \
+            ghcr.io/${{ github.repository_owner }}/simnotice-backend:${{ steps.date.outputs.date_tag }}-amd64 \
+            ghcr.io/${{ github.repository_owner }}/simnotice-backend:${{ steps.date.outputs.date_tag }}-arm64
+
+      - name: Create frontend manifest
+        run: |
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/simnotice-frontend:latest \
+            ghcr.io/${{ github.repository_owner }}/simnotice-frontend:latest-amd64 \
+            ghcr.io/${{ github.repository_owner }}/simnotice-frontend:latest-arm64
+
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/simnotice-frontend:${{ steps.date.outputs.date_tag }} \
+            ghcr.io/${{ github.repository_owner }}/simnotice-frontend:${{ steps.date.outputs.date_tag }}-amd64 \
+            ghcr.io/${{ github.repository_owner }}/simnotice-frontend:${{ steps.date.outputs.date_tag }}-arm64
